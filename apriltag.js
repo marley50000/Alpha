@@ -1,185 +1,191 @@
-//- AprilTag WebAssembly port, created by Daniel Ben-Zvi.
-//- Based on the AprilTag C library, created by the APRIL Robotics Laboratory at the University of Michigan.
-//- https://april.eecs.umich.edu/software/apriltag
+importScripts('apriltag_wasm.js');
+importScripts("https://unpkg.com/comlink/dist/umd/comlink.js");
+
+/**
+ * This is a wrapper class that calls apriltag_wasm to load the WASM module and wraps the c implementation calls.
+ * The apriltag dectector uses the tag36h11 family.
+ * For tag pose estimation, call set_tag_size allows to indicate the size of known tags.
+ * If size is not defined using set_tag_size() will default to the defaukt tag size of 0.15 meters
+ *
+ */
 class Apriltag {
-  constructor(onDetectorReady) {
-    this._onDetectorReady = onDetectorReady;
 
-    this._opt = {
-      // Decimate input image by this factor
-      quad_decimate: 2.0,
-      // What Gaussian blur should be applied to the segmented image (standard deviation in pixels)
-      quad_sigma: 0.0,
-      // Use this many CPU threads
-      nthreads: 1,
-      // Spend more time trying to align edges of tags
-      refine_edges: 1,
-      // Maximum detections to return (0=return all)
-      max_detections: 0,
-      // Return pose (requires camera parameters)
-      return_pose: 1,
-      // Return pose solutions details
-      return_solutions: 1,
-    };
+  /**
+   * Contructor
+   * @param {function} onDetectorReadyCallback Callback when the detector is ready
+   */
+    constructor(onDetectorReadyCallback) {
+        //detectorOptions = detectorOptions || {};
 
-    Module.onRuntimeInitialized = () => {
-      this._init();
-    };
-  }
+        this.onDetectorReadyCallback = onDetectorReadyCallback;
 
-  _init() {
-    this._apriltag_detector_add_family_bits = Module.cwrap("apriltag_detector_add_family_bits", "void", [
-      "number",
-      "number",
-      "number",
-    ]);
-    this._apriltag_detector_create = Module.cwrap("apriltag_detector_create", "number", []);
-    this._apriltag_detector_destroy = Module.cwrap("apriltag_detector_destroy", "void", ["number"]);
-    this._apriltag_detector_detect = Module.cwrap("apriltag_detector_detect", "number", ["number", "number"]);
-    this._image_u8_create = Module.cwrap("image_u8_create", "number", ["number", "number"]);
-    this._image_u8_destroy = Module.cwrap("image_u8_destroy", "void", ["number"]);
-    this._tag36h11_create = Module.cwrap("tag36h11_create", "number", []);
-    this._apriltag_family_destroy = Module.cwrap("apriltag_family_destroy", "void", ["number"]);
-    this._set_tag_size = Module.cwrap("set_tag_size", "void", ["number", "number", "number"]);
-    this._set_camera_info = Module.cwrap("set_camera_info", "void", ["number", "number", "number", "number"]);
-    this._set_detector_options = Module.cwrap("set_detector_options", "void", [
-      "number",
-      "number",
-      "number",
-      "number",
-      "number",
-      "number",
-      "number",
-    ]);
+        // detector options
+        this._opt = {
+          // Decimate input image by this factor
+          quad_decimate: 2.0,
+          // What Gaussian blur should be applied to the segmented image; standard deviation in pixels
+          quad_sigma: 0.0,
+           // Use this many CPU threads (no effect)
+          nthreads: 1,
+          // Spend more time trying to align edges of tags
+          refine_edges: 1,
+          // Maximum detections to return (0=return all)
+          max_detections: 0,
+          // Return pose (requires camera parameters)
+          return_pose: 1,
+          // Return pose solutions details
+          return_solutions: 1
+        }
 
-    // Create the detector
-    this._td = this._apriltag_detector_create();
-
-    // Add 36h11 family
-    this._tf = this._tag36h11_create();
-    this._apriltag_detector_add_family_bits(this._td, this._tf, 1);
-
-    // Set detector options
-    this._set_detector_options(
-      this._opt.quad_decimate,
-      this._opt.quad_sigma,
-      this._opt.nthreads,
-      this._opt.refine_edges,
-      this._opt.max_detections,
-      this._opt.return_pose,
-      this._opt.return_solutions
-    );
-
-    if (this._onDetectorReady) {
-      this._onDetectorReady();
-    }
-  }
-
-  //- Set tag size for pose estimation
-  set_tag_size(tag_id, size) {
-    this._set_tag_size(this._td, tag_id, size);
-  }
-
-  //- Set camera info for pose estimation
-  set_camera_info(fx, fy, cx, cy) {
-    this._set_camera_info(fx, fy, cx, cy);
-  }
-
-  //- Detect tags in a grayscale image
-  async detect(grayscale_image, image_width, image_height) {
-    if (this._td === undefined) {
-      return [];
-    }
-
-    const image_buffer_ptr = Module._malloc(image_width * image_height);
-    Module.HEAPU8.set(grayscale_image, image_buffer_ptr);
-
-    const image = this._image_u8_create(image_width, image_height);
-    Module.setValue(image + 8, image_buffer_ptr, "i32");
-
-    const detections = this._apriltag_detector_detect(this._td, image);
-    const result = this._process_detections(detections);
-
-    Module._free(image_buffer_ptr);
-    this._image_u8_destroy(image);
-
-    return result;
-  }
-
-  _process_detections(detections) {
-    const result = [];
-    const count = Module.getValue(detections, "i32");
-
-    for (let i = 0; i < count; i++) {
-      const detection_ptr = Module.getValue(detections + 4 + i * 4, "i32");
-      const id = Module.getValue(detection_ptr + 4, "i32");
-      const size = Module.getValue(detection_ptr + 24, "double");
-
-      const center = {
-        x: Module.getValue(detection_ptr + 8, "double"),
-        y: Module.getValue(detection_ptr + 16, "double"),
-      };
-
-      const corners = [];
-      for (let j = 0; j < 4; j++) {
-        corners.push({
-          x: Module.getValue(detection_ptr + 32 + j * 16, "double"),
-          y: Module.getValue(detection_ptr + 32 + j * 16 + 8, "double"),
+        let _this = this;
+        AprilTagWasm().then(function (Module) {
+            console.log("Apriltag WASM module loaded.");
+            _this.onWasmInit(Module);
         });
-      }
-
-      const pose = {
-        R: [],
-        t: [],
-        e: 0,
-        asol: { R: [], t: [], e: 0 },
-      };
-
-      if (this._opt.return_pose) {
-        const pose_r_ptr = Module.getValue(detection_ptr + 80, "i32");
-        const pose_t_ptr = Module.getValue(detection_ptr + 84, "i32");
-        pose.e = Module.getValue(detection_ptr + 88, "double");
-
-        for (let j = 0; j < 3; j++) {
-          const row = [];
-          for (let k = 0; k < 3; k++) {
-            row.push(Module.getValue(pose_r_ptr + (j * 3 + k) * 8, "double"));
-          }
-          pose.R.push(row);
-        }
-
-        for (let j = 0; j < 3; j++) {
-          pose.t.push(Module.getValue(pose_t_ptr + j * 8, "double"));
-        }
-
-        if (this._opt.return_solutions) {
-          const asol_r_ptr = Module.getValue(detection_ptr + 96, "i32");
-          const asol_t_ptr = Module.getValue(detection_ptr + 100, "i32");
-          pose.asol.e = Module.getValue(detection_ptr + 104, "double");
-
-          for (let j = 0; j < 3; j++) {
-            const row = [];
-            for (let k = 0; k < 3; k++) {
-              row.push(Module.getValue(asol_r_ptr + (j * 3 + k) * 8, "double"));
-            }
-            pose.asol.R.push(row);
-          }
-
-          for (let j = 0; j < 3; j++) {
-            pose.asol.t.push(Module.getValue(asol_t_ptr + j * 8, "double"));
-          }
-        }
-      }
-
-      result.push({
-        id: id,
-        size: size,
-        center: center,
-        corners: corners,
-        pose: pose,
-      });
     }
 
-    return result;
-  }
+    /**
+     * Init warapper calls
+     * @param {*} Module WASM module instance
+     */
+    onWasmInit(Module) {
+        // save a reference to the module here
+        this._Module = Module;
+        //int atagjs_init(); Init the apriltag detector with default options
+        this._init = Module.cwrap('atagjs_init', 'number', []);
+        //int atagjs_destroy(); Releases resources allocated by the wasm module
+        this._destroy = Module.cwrap('atagjs_destroy', 'number', []);
+        //int atagjs_set_detector_options(float decimate, float sigma, int nthreads, int refine_edges, int max_detections, int return_pose, int return_solutions); Sets the given detector options
+        this._set_detector_options = Module.cwrap('atagjs_set_detector_options', 'number', ['number', 'number', 'number', 'number', 'number', 'number', 'number']);
+        //int atagjs_set_pose_info(double fx, double fy, double cx, double cy); Sets the tag size (meters) and camera intrinsics (in pixels) for tag pose estimation
+        this._set_pose_info = Module.cwrap('atagjs_set_pose_info', 'number', ['number', 'number', 'number', 'number']);
+        //uint8_t* atagjs_set_img_buffer(int width, int height, int stride); Creates/changes size of the image buffer where we receive the images to process
+        this._set_img_buffer = Module.cwrap('atagjs_set_img_buffer', 'number', ['number', 'number', 'number']);
+        //void *atagjs_set_tag_size(int tagid, double size)
+        this._atagjs_set_tag_size = Module.cwrap('atagjs_set_tag_size', null, ['number', 'number']);
+        //t_str_json* atagjs_detect(); Detect tags in image previously stored in the buffer.
+        //returns pointer to buffer starting with an int32 indicating the size of the remaining buffer (a string of chars with the json describing the detections)
+        this._detect = Module.cwrap('atagjs_detect', 'number', []);
+
+        // inits detector
+        this._init();
+
+
+        // set max_detections = 0, meaning no max; will return all detections
+        //options: float decimate, float sigma, int nthreads, int refine_edges, int max_detections, int return_pose, int return_solutions
+        this._set_detector_options(
+          this._opt.quad_decimate,
+          this._opt.quad_sigma,
+          this._opt.nthreads,
+          this._opt.refine_edges,
+          this._opt.max_detections,
+          this._opt.return_pose,
+          this._opt.return_solutions);
+
+        this.onDetectorReadyCallback();
+      }
+
+      /**
+       * **public** detect method
+       * @param {Array} grayscaleImg grayscale image buffer
+       * @param {Number} imgWidth image with
+       * @param {Number} imgHeight image height
+       * @return {detection} detection object
+       */
+    detect(grayscaleImg, imgWidth, imgHeight) {
+        // set_img_buffer allocates the buffer for image and returns it; just returns the previously allocated buffer if size has not changed
+        let imgBuffer = this._set_img_buffer(imgWidth, imgHeight, imgWidth);
+        if (imgWidth * imgHeight < grayscaleImg.length) return { result: "Image data too large." };
+        this._Module.HEAPU8.set(grayscaleImg, imgBuffer); // copy grayscale image data
+        let strJsonPtr = this._detect();
+        /* detect returns a pointer to a t_str_json c struct as follows
+            size_t len; // string length
+            char *str;
+            size_t alloc_size; // allocated size */
+        let strJsonLen = this._Module.getValue(strJsonPtr, "i32"); // get len from struct
+        if (strJsonLen == 0) { // returned empty string
+            return [];
+        }
+        let strJsonStrPtr = this._Module.getValue(strJsonPtr + 4, "i32"); // get *str from struct
+        const strJsonView = new Uint8Array(this._Module.HEAP8.buffer, strJsonStrPtr, strJsonLen);
+        let detectionsJson = ''; // build this javascript string from returned characters
+        for (let i = 0; i < strJsonLen; i++) {
+            detectionsJson += String.fromCharCode(strJsonView[i]);
+        }
+        //console.log(detectionsJson);
+        let detections = JSON.parse(detectionsJson);
+
+        return detections;
+    }
+
+    /**
+     * **public** set camera parameters
+     * @param {Number} fx camera focal length
+     * @param {Number} fy camera focal length
+     * @param {Number} cx camera principal point
+     * @param {Number} cy camera principal point
+     */
+    set_camera_info(fx, fy, cx, cy) {
+        this._set_pose_info(fx, fy, cx, cy);
+    }
+
+    /**
+     * **public** set size of known tag (size in meters)
+     * @param {Number} tagid the tag id
+     * @param {Number} size the size of the tag in meters
+     */
+    set_tag_size(tagid, size) {
+        this._atagjs_set_tag_size(tagid, size);
+    }
+
+    /**
+     * **public** set maximum detections to return (0=return all)
+     * @param {Number} maxDetections
+     */
+    set_max_detections(maxDetections) {
+        this._opt.max_detections = maxDetections;
+        this._set_detector_options(
+          this._opt.quad_decimate,
+          this._opt.quad_sigma,
+          this._opt.nthreads,
+          this._opt.refine_edges,
+          this._opt.max_detections,
+          this._opt.return_pose,
+          this._opt.return_solutions);
+    }
+
+    /**
+     * **public** set return pose estimate (0=do not return; 1=return)
+     * @param {Number} returnPose
+     */
+    set_return_pose(returnPose) {
+        this._opt.return_pose = returnPose;
+        this._set_detector_options(
+          this._opt.quad_decimate,
+          this._opt.quad_sigma,
+          this._opt.nthreads,
+          this._opt.refine_edges,
+          this._opt.max_detections,
+          this._opt.return_pose,
+          this._opt.return_solutions);
+    }
+
+    /**
+     * **public** set return pose estimate alternative solution details (0=do not return; 1=return)
+     * @param {Number} returnSolutions
+     */
+    set_return_solutions(returnSolutions) {
+        this._opt.return_solutions = returnSolutions;
+        this._set_detector_options(
+          this._opt.quad_decimate,
+          this._opt.quad_sigma,
+          this._opt.nthreads,
+          this._opt.refine_edges,
+          this._opt.max_detections,
+          this._opt.return_pose,
+          this._opt.return_solutions);
+    }
+
 }
+
+Comlink.expose(Apriltag);

@@ -8,14 +8,18 @@ let apriltag;
 let camera;
 let animationFrameId;
 
-async function init() {
-  apriltag = new Apriltag(() => {
-    statusElement.textContent = "AprilTag detector ready.";
-    startButton.disabled = false;
-  });
+async function run() {
+    const worker = new Worker('worker.js');
+    const Apriltag = Comlink.wrap(worker);
 
-  startButton.addEventListener("click", startCamera);
+    apriltag = await new Apriltag(Comlink.proxy(() => {
+        statusElement.textContent = "AprilTag detector ready.";
+        startButton.disabled = false;
+        startButton.addEventListener("click", startCamera);
+    }));
 }
+
+run();
 
 async function startCamera() {
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -55,11 +59,7 @@ async function detect() {
     grayscalePixels[j] = grayscale;
   }
 
-  const detections = await apriltag.detect(
-    grayscalePixels,
-    canvas.width,
-    canvas.height
-  );
+  const detections = await apriltag.detect(Comlink.transfer(grayscalePixels, [grayscalePixels.buffer]), canvas.width, canvas.height);
 
   if (detections.length > 0) {
     statusElement.textContent = `Detected ${detections.length} tags.`;
@@ -94,5 +94,3 @@ function drawDetections(detections) {
     );
   }
 }
-
-init();

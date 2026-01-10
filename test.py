@@ -1,9 +1,15 @@
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 def run(playwright):
     browser = playwright.chromium.launch()
     page = browser.new_page()
+
     page.goto("http://localhost:8000")
+
+    # Wait for the status element to indicate that the detector is ready
+    status_element = page.locator("#status")
+    expect(status_element).to_have_text("AprilTag detector ready.")
+
     page.screenshot(path="screenshot.png")
     browser.close()
 
