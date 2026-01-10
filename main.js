@@ -65,7 +65,17 @@ async function detect() {
 
   if (detections.length > 0) {
     statusElement.textContent = `Detected ${detections.length} tags.`;
-    report.textContent = JSON.stringify(detections, null, 2);
+    const tagIds = detections.map(d => d.id).join(', ');
+    report.textContent = `Tag IDs: ${tagIds}`;
+
+    fetch('/api/detections', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(detections),
+    });
+
     drawDetections(detections);
   } else {
     statusElement.textContent = "No tags detected.";
@@ -107,30 +117,24 @@ function drawDetections(detections) {
 
     const pose = detection.pose;
     if (pose) {
-        const axisLength = 0.1;
-        const origin = project([0, 0, 0], pose);
-        const xAxis = project([axisLength, 0, 0], pose);
-        const yAxis = project([0, axisLength, 0], pose);
-        const zAxis = project([0, 0, axisLength], pose);
+        const s = detection.size / 2;
+        const vertices = [
+            [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
+            [-s, -s, s], [s, -s, s], [s, s, s], [-s, s, s]
+        ].map(p => project(p, pose));
+
+        const edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7]
+        ];
 
         ctx.beginPath();
-        ctx.moveTo(origin.x, origin.y);
-        ctx.lineTo(xAxis.x, xAxis.y);
-        ctx.strokeStyle = "blue";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(origin.x, origin.y);
-        ctx.lineTo(yAxis.x, yAxis.y);
-        ctx.strokeStyle = "green";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(origin.x, origin.y);
-        ctx.lineTo(zAxis.x, zAxis.y);
-        ctx.strokeStyle = "purple";
+        for (const [i, j] of edges) {
+            ctx.moveTo(vertices[i].x, vertices[i].y);
+            ctx.lineTo(vertices[j].x, vertices[j].y);
+        }
+        ctx.strokeStyle = "cyan";
         ctx.lineWidth = 2;
         ctx.stroke();
     }
