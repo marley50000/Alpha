@@ -3,6 +3,7 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const startButton = document.getElementById("startButton");
 const statusElement = document.getElementById("status");
+const report = document.getElementById("report");
 
 let apriltag;
 let camera;
@@ -13,6 +14,7 @@ async function run() {
     const Apriltag = Comlink.wrap(worker);
 
     apriltag = await new Apriltag(Comlink.proxy(() => {
+        apriltag.set_camera_info(640, 480, 320, 240); // Default camera info
         statusElement.textContent = "AprilTag detector ready.";
         startButton.disabled = false;
         startButton.addEventListener("click", startCamera);
@@ -63,12 +65,30 @@ async function detect() {
 
   if (detections.length > 0) {
     statusElement.textContent = `Detected ${detections.length} tags.`;
+    report.textContent = JSON.stringify(detections, null, 2);
     drawDetections(detections);
   } else {
     statusElement.textContent = "No tags detected.";
+    report.textContent = "No detections.";
   }
 
   animationFrameId = requestAnimationFrame(detect);
+}
+
+function project(p, pose) {
+    const fx = 640; // Default focal length x
+    const fy = 480; // Default focal length y
+    const cx = 320; // Default principal point x
+    const cy = 240; // Default principal point y
+
+    const x = p[0] * pose.R[0][0] + p[1] * pose.R[0][1] + p[2] * pose.R[0][2] + pose.t[0];
+    const y = p[0] * pose.R[1][0] + p[1] * pose.R[1][1] + p[2] * pose.R[1][2] + pose.t[1];
+    const z = p[0] * pose.R[2][0] + p[1] * pose.R[2][1] + p[2] * pose.R[2][2] + pose.t[2];
+
+    return {
+        x: (x / z) * fx + cx,
+        y: (y / z) * fy + cy,
+    };
 }
 
 function drawDetections(detections) {
@@ -84,6 +104,36 @@ function drawDetections(detections) {
     ctx.strokeStyle = "red";
     ctx.lineWidth = 2;
     ctx.stroke();
+
+    const pose = detection.pose;
+    if (pose) {
+        const axisLength = 0.1;
+        const origin = project([0, 0, 0], pose);
+        const xAxis = project([axisLength, 0, 0], pose);
+        const yAxis = project([0, axisLength, 0], pose);
+        const zAxis = project([0, 0, axisLength], pose);
+
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(xAxis.x, xAxis.y);
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(yAxis.x, yAxis.y);
+        ctx.strokeStyle = "green";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(zAxis.x, zAxis.y);
+        ctx.strokeStyle = "purple";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
 
     ctx.fillStyle = "white";
     ctx.font = "16px Arial";

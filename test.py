@@ -10,6 +10,10 @@ def run(playwright):
     status_element = page.locator("#status")
     expect(status_element).to_have_text("AprilTag detector ready.")
 
+    # Check for the report element
+    report_element = page.locator("#report")
+    expect(report_element).to_be_visible()
+
     page.screenshot(path="screenshot.png")
     browser.close()
 
