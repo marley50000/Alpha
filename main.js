@@ -8,8 +8,15 @@ const report = document.getElementById("report");
 let apriltag;
 let camera;
 let animationFrameId;
+const detectionHistory = {};
+const FRAME_HISTORY_COUNT = 5; // Number of frames to average over
 
 async function run() {
+    if (navigator.mediaDevices) {
+        const supportedConstraints = navigator.mediaDevices.getSupportedConstraints();
+        console.log("Supported camera constraints:", supportedConstraints);
+    }
+
     const worker = new Worker('worker.js');
     const Apriltag = Comlink.wrap(worker);
 
@@ -24,27 +31,48 @@ async function run() {
 run();
 
 async function startCamera() {
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      video.srcObject = stream;
-      video.play();
-      video.addEventListener("loadedmetadata", () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        detect();
-      });
-      startButton.style.display = "none";
-    } catch (error) {
-      console.error("Error accessing camera:", error);
-      statusElement.textContent = "Error accessing camera. Please grant permission.";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error("getUserMedia is not supported in this browser.");
+        statusElement.textContent = "Camera access is not supported in this browser.";
+        return;
     }
-  } else {
-    console.error("getUserMedia is not supported in this browser.");
-    statusElement.textContent = "Camera access is not supported in this browser.";
-  }
+
+    const videoConstraints = {
+        facingMode: "environment",
+        frameRate: { ideal: 60, max: 120 },
+    };
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+        video.srcObject = stream;
+        video.play();
+
+        video.addEventListener("loadedmetadata", async () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const track = stream.getVideoTracks()[0];
+            const advancedConstraints = {
+                exposureMode: "manual",
+                focusMode: "manual",
+                whiteBalanceMode: "manual",
+            };
+
+            try {
+                await track.applyConstraints({ advanced: [advancedConstraints] });
+                console.log("Successfully applied advanced camera constraints.");
+            } catch (err) {
+                console.warn("Failed to apply advanced camera constraints:", err);
+            }
+
+            detect();
+        });
+
+        startButton.style.display = "none";
+    } catch (error) {
+        console.error("Error accessing camera:", error);
+        statusElement.textContent = "Error accessing camera. Please grant permission.";
+    }
 }
 
 async function detect() {
@@ -63,9 +91,29 @@ async function detect() {
 
   const detections = await apriltag.detect(Comlink.transfer(grayscalePixels, [grayscalePixels.buffer]), canvas.width, canvas.height);
 
-  if (detections.length > 0) {
-    statusElement.textContent = `Detected ${detections.length} tags.`;
-    const tagIds = detections.map(d => d.id).join(', ');
+  const now = performance.now();
+  for (const detection of detections) {
+      if (!detectionHistory[detection.id]) {
+          detectionHistory[detection.id] = [];
+      }
+      detectionHistory[detection.id].push({ ...detection, timestamp: now });
+  }
+
+  // Prune old detections from history
+  for (const id in detectionHistory) {
+      detectionHistory[id] = detectionHistory[id].filter(d => now - d.timestamp < 200); // Keep last 200ms
+      if (detectionHistory[id].length === 0) {
+          delete detectionHistory[id];
+      }
+  }
+
+  const stableDetections = Object.values(detectionHistory)
+      .filter(history => history.length >= FRAME_HISTORY_COUNT)
+      .map(history => history[history.length - 1]); // Use the most recent stable detection
+
+  if (stableDetections.length > 0) {
+    statusElement.textContent = `Detected ${stableDetections.length} stable tags.`;
+    const tagIds = stableDetections.map(d => d.id).join(', ');
     report.textContent = `Tag IDs: ${tagIds}`;
 
     fetch('/api/detections', {
@@ -73,12 +121,12 @@ async function detect() {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(detections),
+      body: JSON.stringify(stableDetections),
     });
 
-    drawDetections(detections);
+    drawDetections(stableDetections);
   } else {
-    statusElement.textContent = "No tags detected.";
+    statusElement.textContent = "No stable tags detected.";
     report.textContent = "No detections.";
   }
 
