@@ -1,0 +1,6 @@
+127.0.0.1 - - [11/Jan/2026 06:30:54] "GET /navigation.html HTTP/1.1" 200 -
+127.0.0.1 - - [11/Jan/2026 06:30:54] "GET /navigation.css HTTP/1.1" 200 -
+127.0.0.1 - - [11/Jan/2026 06:30:54] "GET /navigation.js HTTP/1.1" 200 -
+127.0.0.1 - - [11/Jan/2026 06:30:54] "GET /graph.js HTTP/1.1" 200 -
+127.0.0.1 - - [11/Jan/2026 06:30:55] "GET /map.svg HTTP/1.1" 200 -
+127.0.0.1 - - [11/Jan/2026 06:30:55] "GET /locations.json HTTP/1.1" 200 -

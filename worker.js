@@ -1,1 +1,0 @@
-importScripts('apriltag.js');

@@ -1,0 +1,5 @@
+{
+    "10": { "x": 150, "y": 100, "name": "Room 1 Entrance" },
+    "25": { "x": 625, "y": 100, "name": "Room 3 Entrance" },
+    "33": { "x": 375, "y": 450, "name": "Room 4 Entrance" }
+}
