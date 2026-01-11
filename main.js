@@ -5,38 +5,22 @@ const startButton = document.getElementById("startButton");
 const statusElement = document.getElementById("status");
 const report = document.getElementById("report");
 
+// Camera parameters (to be unified)
+const FOCAL_LENGTH_X = 500;
+const FOCAL_LENGTH_Y = 500;
+const PRINCIPAL_POINT_X = 320;
+const PRINCIPAL_POINT_Y = 240;
+
 let apriltag;
-let camera;
 let animationFrameId;
 const detectionHistory = {};
 const FRAME_HISTORY_COUNT = 5; // Number of frames to average over
-let knownTagLocations = {};
 
-async function run() {
-    fetch('apriltag-locations.json')
-        .then(response => response.json())
-        .then(locations => {
-            knownTagLocations = locations;
-            console.log('Loaded known AprilTag locations.');
-        });
+// Initial setup
+startButton.disabled = false;
+startButton.addEventListener("click", startCamera);
+statusElement.textContent = "Click 'Start Camera' to begin.";
 
-    if (navigator.mediaDevices) {
-        const supportedConstraints = navigator.mediaDevices.getSupportedConstraints();
-        console.log("Supported camera constraints:", supportedConstraints);
-    }
-
-    const worker = new Worker('apriltag-worker.js');
-    const Apriltag = Comlink.wrap(worker);
-
-    apriltag = await new Apriltag(Comlink.proxy(() => {
-        apriltag.set_camera_info(640, 480, 320, 240); // Default camera info
-        statusElement.textContent = "AprilTag detector ready.";
-        startButton.disabled = false;
-        startButton.addEventListener("click", startCamera);
-    }));
-}
-
-run();
 
 async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -59,6 +43,16 @@ async function startCamera() {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
 
+            // Initialize the worker now that we have camera dimensions
+            const worker = new Worker('worker.js');
+            const Apriltag = Comlink.wrap(worker);
+            apriltag = await new Apriltag(Comlink.proxy(() => {
+                const principalPointX = video.videoWidth / 2;
+                const principalPointY = video.videoHeight / 2;
+                apriltag.set_camera_info(video.videoWidth, video.videoHeight, FOCAL_LENGTH_X, FOCAL_LENGTH_Y, principalPointX, principalPointY);
+                detect(); // Start detection loop
+            }));
+
             const track = stream.getVideoTracks()[0];
             const advancedConstraints = {
                 exposureMode: "manual",
@@ -72,8 +66,6 @@ async function startCamera() {
             } catch (err) {
                 console.warn("Failed to apply advanced camera constraints:", err);
             }
-
-            detect();
         });
 
         startButton.style.display = "none";
@@ -124,28 +116,14 @@ async function detect() {
     const tagIds = stableDetections.map(d => d.id).join(', ');
     report.textContent = `Tag IDs: ${tagIds}`;
 
-    // --- Optical Sync Logic ---
-    const knownTag = stableDetections.find(d => knownTagLocations[d.id]);
-    if (knownTag) {
-        const location = knownTagLocations[knownTag.id];
-        localStorage.setItem('optical-sync-location', JSON.stringify(location));
-        statusElement.textContent = `Synced location to ${location.name}. Redirecting...`;
-
-        // Stop detection and redirect
-        cancelAnimationFrame(animationFrameId);
-        setTimeout(() => {
-            window.location.href = 'navigation.html';
-        }, 2000);
-        return;
-    }
-    // --- End Optical Sync Logic ---
-
-    fetch('/api/detections', {
+    fetch('http://127.0.0.1:5000/api/detections', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(stableDetections),
+    }).catch(error => {
+        console.error('Error sending detections to backend:', error);
     });
 
     drawDetections(stableDetections);
@@ -158,10 +136,10 @@ async function detect() {
 }
 
 function project(p, pose) {
-    const fx = 640; // Default focal length x
-    const fy = 480; // Default focal length y
-    const cx = 320; // Default principal point x
-    const cy = 240; // Default principal point y
+    const fx = FOCAL_LENGTH_X;
+    const fy = FOCAL_LENGTH_Y;
+    const cx = video.videoWidth / 2;
+    const cy = video.videoHeight / 2;
 
     const x = p[0] * pose.R[0][0] + p[1] * pose.R[0][1] + p[2] * pose.R[0][2] + pose.t[0];
     const y = p[0] * pose.R[1][0] + p[1] * pose.R[1][1] + p[2] * pose.R[1][2] + pose.t[1];
