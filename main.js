@@ -5,91 +5,128 @@ const startButton = document.getElementById("startButton");
 const statusElement = document.getElementById("status");
 const report = document.getElementById("report");
 
+// Camera parameters (to be unified)
+const FOCAL_LENGTH_X = 500;
+const FOCAL_LENGTH_Y = 500;
+const BACKEND_URL = 'http://127.0.0.1:5000/api/detections';
+
 let apriltag;
-let camera;
 let animationFrameId;
+const detectionHistory = {};
+const FRAME_HISTORY_COUNT = 5; // Number of frames to average over
 
-async function run() {
-    const worker = new Worker('worker.js');
-    const Apriltag = Comlink.wrap(worker);
+// Initial setup
+startButton.disabled = false;
+startButton.addEventListener("click", startCamera);
+statusElement.textContent = "Click 'Start Camera' to begin.";
 
-    apriltag = await new Apriltag(Comlink.proxy(() => {
-        apriltag.set_camera_info(640, 480, 320, 240); // Default camera info
-        statusElement.textContent = "AprilTag detector ready.";
-        startButton.disabled = false;
-        startButton.addEventListener("click", startCamera);
-    }));
-}
-
-run();
 
 async function startCamera() {
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      video.srcObject = stream;
-      video.play();
-      video.addEventListener("loadedmetadata", () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        detect();
-      });
-      startButton.style.display = "none";
-    } catch (error) {
-      console.error("Error accessing camera:", error);
-      statusElement.textContent = "Error accessing camera. Please grant permission.";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error("getUserMedia is not supported in this browser.");
+        statusElement.textContent = "Camera access is not supported in this browser.";
+        return;
     }
-  } else {
-    console.error("getUserMedia is not supported in this browser.");
-    statusElement.textContent = "Camera access is not supported in this browser.";
-  }
+
+    const videoConstraints = {
+        facingMode: "environment"
+    };
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+        video.srcObject = stream;
+        video.play();
+
+        video.addEventListener("loadedmetadata", async () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Initialize the worker now that we have camera dimensions
+            const worker = new Worker('worker.js');
+            const Apriltag = Comlink.wrap(worker);
+            apriltag = await new Apriltag(Comlink.proxy(() => {
+                const principalPointX = video.videoWidth / 2;
+                const principalPointY = video.videoHeight / 2;
+                apriltag.set_camera_info(video.videoWidth, video.videoHeight, FOCAL_LENGTH_X, FOCAL_LENGTH_Y, principalPointX, principalPointY);
+                statusElement.textContent = "AprilTag detector ready.";
+                detect(); // Start detection loop
+            }));
+        });
+
+        startButton.style.display = "none";
+    } catch (error) {
+        console.error("Error accessing camera:", error);
+        statusElement.textContent = "Error accessing camera. Please grant permission.";
+    }
 }
 
 async function detect() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const grayscalePixels = new Uint8Array(canvas.width * canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const grayscalePixels = new Uint8Array(canvas.width * canvas.height);
 
-  for (let i = 0, j = 0; i < imageData.data.length; i += 4, j++) {
-    const grayscale = Math.round(
-      (imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) / 3
-    );
-    grayscalePixels[j] = grayscale;
-  }
+        for (let i = 0, j = 0; i < imageData.data.length; i += 4, j++) {
+            const grayscale = Math.round(
+                (imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) / 3
+            );
+            grayscalePixels[j] = grayscale;
+        }
 
-  const detections = await apriltag.detect(Comlink.transfer(grayscalePixels, [grayscalePixels.buffer]), canvas.width, canvas.height);
+        const detections = await apriltag.detect(Comlink.transfer(grayscalePixels, [grayscalePixels.buffer]), canvas.width, canvas.height);
 
-  if (detections.length > 0) {
-    statusElement.textContent = `Detected ${detections.length} tags.`;
-    const tagIds = detections.map(d => d.id).join(', ');
-    report.textContent = `Tag IDs: ${tagIds}`;
-    
-    fetch('/api/detections', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(detections),
-    });
+        const now = performance.now();
+        for (const detection of detections) {
+            if (!detectionHistory[detection.id]) {
+                detectionHistory[detection.id] = [];
+            }
+            detectionHistory[detection.id].push({ ...detection, timestamp: now });
+        }
 
-    drawDetections(detections);
-  } else {
-    statusElement.textContent = "No tags detected.";
-    report.textContent = "No detections.";
-  }
+        // Prune old detections from history
+        for (const id in detectionHistory) {
+            detectionHistory[id] = detectionHistory[id].filter(d => now - d.timestamp < 200);
+            if (detectionHistory[id].length === 0) {
+                delete detectionHistory[id];
+            }
+        }
 
-  animationFrameId = requestAnimationFrame(detect);
+        const stableDetections = Object.values(detectionHistory)
+            .filter(history => history.length >= FRAME_HISTORY_COUNT)
+            .map(history => history[history.length - 1]);
+
+        if (stableDetections.length > 0) {
+            statusElement.textContent = `Detected ${stableDetections.length} stable tags.`;
+            const tagIds = stableDetections.map(d => d.id).join(', ');
+            report.textContent = `Tag IDs: ${tagIds}`;
+
+            fetch(BACKEND_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(stableDetections),
+            }).catch(error => {
+                console.error('Error sending detections to backend:', error);
+            });
+
+            drawDetections(stableDetections);
+        } else {
+            statusElement.textContent = "No stable tags detected.";
+            report.textContent = "No detections.";
+        }
+    } catch (error) {
+        console.error("Error in detection loop:", error);
+    } finally {
+        animationFrameId = requestAnimationFrame(detect);
+    }
 }
 
 function project(p, pose) {
-    const fx = 640; // Default focal length x
-    const fy = 480; // Default focal length y
-    const cx = 320; // Default principal point x
-    const cy = 240; // Default principal point y
+    const fx = FOCAL_LENGTH_X;
+    const fy = FOCAL_LENGTH_Y;
+    const cx = video.videoWidth / 2;
+    const cy = video.videoHeight / 2;
 
     const x = p[0] * pose.R[0][0] + p[1] * pose.R[0][1] + p[2] * pose.R[0][2] + pose.t[0];
     const y = p[0] * pose.R[1][0] + p[1] * pose.R[1][1] + p[2] * pose.R[1][2] + pose.t[1];

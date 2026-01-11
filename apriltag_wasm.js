@@ -19,3 +19,4 @@ else if (typeof define === 'function' && define['amd'])
   define([], function() { return AprilTagWasm; });
 else if (typeof exports === 'object')
   exports["AprilTagWasm"] = AprilTagWasm;
+self.ApriltagWasm = AprilTagWasm;
