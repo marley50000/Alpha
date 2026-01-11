@@ -5,74 +5,46 @@ const startButton = document.getElementById("startButton");
 const statusElement = document.getElementById("status");
 const report = document.getElementById("report");
 
-// Camera parameters (to be unified)
-const FOCAL_LENGTH_X = 500;
-const FOCAL_LENGTH_Y = 500;
-const PRINCIPAL_POINT_X = 320;
-const PRINCIPAL_POINT_Y = 240;
-
 let apriltag;
+let camera;
 let animationFrameId;
-const detectionHistory = {};
-const FRAME_HISTORY_COUNT = 5; // Number of frames to average over
 
-// Initial setup
-startButton.disabled = false;
-startButton.addEventListener("click", startCamera);
-statusElement.textContent = "Click 'Start Camera' to begin.";
+async function run() {
+    const worker = new Worker('worker.js');
+    const Apriltag = Comlink.wrap(worker);
 
+    apriltag = await new Apriltag(Comlink.proxy(() => {
+        apriltag.set_camera_info(640, 480, 320, 240); // Default camera info
+        statusElement.textContent = "AprilTag detector ready.";
+        startButton.disabled = false;
+        startButton.addEventListener("click", startCamera);
+    }));
+}
+
+run();
 
 async function startCamera() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.error("getUserMedia is not supported in this browser.");
-        statusElement.textContent = "Camera access is not supported in this browser.";
-        return;
-    }
-
-    const videoConstraints = {
-        facingMode: "environment",
-        frameRate: { ideal: 60, max: 120 },
-    };
-
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
-        video.srcObject = stream;
-        video.play();
-
-        video.addEventListener("loadedmetadata", async () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-
-            // Initialize the worker now that we have camera dimensions
-            const worker = new Worker('worker.js');
-            const Apriltag = Comlink.wrap(worker);
-            apriltag = await new Apriltag(Comlink.proxy(() => {
-                const principalPointX = video.videoWidth / 2;
-                const principalPointY = video.videoHeight / 2;
-                apriltag.set_camera_info(video.videoWidth, video.videoHeight, FOCAL_LENGTH_X, FOCAL_LENGTH_Y, principalPointX, principalPointY);
-                detect(); // Start detection loop
-            }));
-
-            const track = stream.getVideoTracks()[0];
-            const advancedConstraints = {
-                exposureMode: "manual",
-                focusMode: "manual",
-                whiteBalanceMode: "manual",
-            };
-
-            try {
-                await track.applyConstraints({ advanced: [advancedConstraints] });
-                console.log("Successfully applied advanced camera constraints.");
-            } catch (err) {
-                console.warn("Failed to apply advanced camera constraints:", err);
-            }
-        });
-
-        startButton.style.display = "none";
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      video.srcObject = stream;
+      video.play();
+      video.addEventListener("loadedmetadata", () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        detect();
+      });
+      startButton.style.display = "none";
     } catch (error) {
-        console.error("Error accessing camera:", error);
-        statusElement.textContent = "Error accessing camera. Please grant permission.";
+      console.error("Error accessing camera:", error);
+      statusElement.textContent = "Error accessing camera. Please grant permission.";
     }
+  } else {
+    console.error("getUserMedia is not supported in this browser.");
+    statusElement.textContent = "Camera access is not supported in this browser.";
+  }
 }
 
 async function detect() {
@@ -91,44 +63,22 @@ async function detect() {
 
   const detections = await apriltag.detect(Comlink.transfer(grayscalePixels, [grayscalePixels.buffer]), canvas.width, canvas.height);
 
-  const now = performance.now();
-  for (const detection of detections) {
-      if (!detectionHistory[detection.id]) {
-          detectionHistory[detection.id] = [];
-      }
-      detectionHistory[detection.id].push({ ...detection, timestamp: now });
-  }
-
-  // Prune old detections from history
-  for (const id in detectionHistory) {
-      detectionHistory[id] = detectionHistory[id].filter(d => now - d.timestamp < 200); // Keep last 200ms
-      if (detectionHistory[id].length === 0) {
-          delete detectionHistory[id];
-      }
-  }
-
-  const stableDetections = Object.values(detectionHistory)
-      .filter(history => history.length >= FRAME_HISTORY_COUNT)
-      .map(history => history[history.length - 1]); // Use the most recent stable detection
-
-  if (stableDetections.length > 0) {
-    statusElement.textContent = `Detected ${stableDetections.length} stable tags.`;
-    const tagIds = stableDetections.map(d => d.id).join(', ');
+  if (detections.length > 0) {
+    statusElement.textContent = `Detected ${detections.length} tags.`;
+    const tagIds = detections.map(d => d.id).join(', ');
     report.textContent = `Tag IDs: ${tagIds}`;
-
-    fetch('http://127.0.0.1:5000/api/detections', {
+    
+    fetch('/api/detections', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(stableDetections),
-    }).catch(error => {
-        console.error('Error sending detections to backend:', error);
+      body: JSON.stringify(detections),
     });
 
-    drawDetections(stableDetections);
+    drawDetections(detections);
   } else {
-    statusElement.textContent = "No stable tags detected.";
+    statusElement.textContent = "No tags detected.";
     report.textContent = "No detections.";
   }
 
@@ -136,10 +86,10 @@ async function detect() {
 }
 
 function project(p, pose) {
-    const fx = FOCAL_LENGTH_X;
-    const fy = FOCAL_LENGTH_Y;
-    const cx = video.videoWidth / 2;
-    const cy = video.videoHeight / 2;
+    const fx = 640; // Default focal length x
+    const fy = 480; // Default focal length y
+    const cx = 320; // Default principal point x
+    const cy = 240; // Default principal point y
 
     const x = p[0] * pose.R[0][0] + p[1] * pose.R[0][1] + p[2] * pose.R[0][2] + pose.t[0];
     const y = p[0] * pose.R[1][0] + p[1] * pose.R[1][1] + p[2] * pose.R[1][2] + pose.t[1];
