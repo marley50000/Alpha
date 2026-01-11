@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
     function initializeBlueDot() {
-        const startNode = mapGraph.getNodeById('room1');
+        const startNode = mapGraph.getNodeById('entrance');
         if (!svg || !startNode) return;
 
         blueDot = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -208,8 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     navigateButton.addEventListener('click', () => {
-        // For now, hardcode start and use dropdown for end
-        const startId = 'room1';
+        const startId = 'entrance';
         const endId = destinationSelect.value;
         if (endId) {
             findAndDrawPath(startId, endId);

@@ -1,18 +1,30 @@
-<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+<svg width="1000" height="700" xmlns="http://www.w3.org/2000/svg">
   <!-- Background -->
-  <rect width="100%" height="100%" fill="#f0f0f0"/>
+  <rect width="100%" height="100%" fill="#f5f5f5"/>
 
-  <!-- Walls -->
-  <rect x="50" y="50" width="700" height="500" fill="none" stroke="black" stroke-width="2"/>
-  <rect x="250" y="50" width="2" height="200" fill="black"/>
-  <rect x="500" y="250" width="250" height="2" fill="black"/>
-  <rect x="250" y="400" width="300" height="2" fill="black"/>
+  <!-- Main Walls -->
+  <rect x="20" y="20" width="960" height="660" fill="none" stroke="black" stroke-width="3"/>
 
-  <!-- Rooms -->
-  <text x="150" y="150" font-family="sans-serif" font-size="20" text-anchor="middle">Room 1</text>
-  <text x="375" y="150" font-family="sans-serif" font-size="20" text-anchor="middle">Room 2</text>
-  <text x="625" y="150" font-family="sans-serif" font-size="20" text-anchor="middle">Room 3</text>
-  <text x="150" y="350" font-family="sans-serif" font-size="20" text-anchor="middle">Corridor</text>
-  <text x="375" y="500" font-family="sans-serif" font-size="20" text-anchor="middle">Room 4</text>
-  <text x="625" y="350" font-family="sans-serif" font-size="20" text-anchor="middle">Room 5</text>
+  <!-- Store Sections -->
+  <rect x="50" y="50" width="200" height="150" fill="#a2d9a2"/> <!-- Produce -->
+  <text x="150" y="130" text-anchor="middle">Produce</text>
+  <rect x="750" y="50" width="200" height="150" fill="#ffd699"/> <!-- Bakery -->
+  <text x="850" y="130" text-anchor="middle">Bakery</text>
+  <rect x="50" y="500" width="200" height="150" fill="#b3b3cc"/> <!-- Electronics -->
+  <text x="150" y="580" text-anchor="middle">Electronics</text>
+  <rect x="750" y="500" width="200" height="150" fill="#d9b3ff"/> <!-- Pharmacy -->
+  <text x="850" y="580" text-anchor="middle">Pharmacy</text>
+
+  <!-- Shelves (Aisles) -->
+  <rect x="300" y="80" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="150" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="220" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="290" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="360" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="430" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="500" width="400" height="30" fill="#cccccc"/>
+  <rect x="300" y="570" width="400" height="30" fill="#cccccc"/>
+
+  <!-- Entrance/Exit -->
+  <text x="500" y="670" text-anchor="middle" font-size="20">Main Entrance</text>
 </svg>

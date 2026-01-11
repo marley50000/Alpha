@@ -1,22 +1,22 @@
 [
     {
-        "id": "room1",
-        "name": "Room 1"
+        "id": "produce_main",
+        "name": "Produce Section"
     },
     {
-        "id": "room2",
-        "name": "Room 2"
+        "id": "bakery_main",
+        "name": "Bakery"
     },
     {
-        "id": "room3",
-        "name": "Room 3"
+        "id": "electronics_main",
+        "name": "Electronics Section"
     },
     {
-        "id": "room4",
-        "name": "Room 4"
+        "id": "pharmacy_main",
+        "name": "Pharmacy"
     },
     {
-        "id": "room5",
-        "name": "Room 5"
+        "id": "entrance",
+        "name": "Main Entrance"
     }
 ]
